@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта объектов — Korter CRM</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family:-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #map { position:absolute; top:56px; left:0; right:0; bottom:0; }
+  .topbar {
+    position:absolute; top:0; left:0; right:0; height:56px; z-index:10;
+    background:#fff; border-bottom:1px solid #e2e8f0; display:flex; align-items:center;
+    gap:12px; padding:0 16px; box-sizing:border-box; box-shadow:0 1px 3px rgba(0,0,0,0.06);
+  }
+  .toggle-group { display:flex; border:1px solid #cbd5e0; border-radius:8px; overflow:hidden; }
+  .toggle-group button {
+    border:none; background:#fff; padding:8px 18px; font-size:14px; font-weight:600;
+    color:#718096; cursor:pointer;
+  }
+  .toggle-group button.active.rent { background:#3182ce; color:#fff; }
+  .toggle-group button.active.sale { background:#e53e3e; color:#fff; }
+  .count { font-size:13px; color:#718096; }
+  .status { font-size:12px; color:#a0aec0; margin-left:auto; }
+</style>
+<script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="toggle-group">
+      <button id="btn-rent" class="active rent">Аренда</button>
+      <button id="btn-sale" class="sale">Продажа</button>
+    </div>
+    <span class="count" id="count-label"></span>
+    <span class="status" id="geo-status"></span>
+  </div>
+  <div id="map"></div>
+  <div id="debug-msg" style="position:absolute; top:70px; left:16px; right:16px; font-size:14px; color:#2d3748; z-index:5;">Загрузка карты…</div>
+<script>
+  // Этот файл отдаётся обычным статическим хостингом (GitHub Pages), а НЕ
+  // внутри Google Apps Script — именно поэтому скрипт Яндекс Карт здесь
+  // загружается нормально (внутри Apps Script Google блокирует подключение
+  // сторонних скриптов, из-за чего карта раньше оставалась пустой).
+  //
+  // Код этой страницы виден всем желающим (через "Просмотр кода страницы"),
+  // поэтому здесь используется ОТДЕЛЬНЫЙ, менее привилегированный токен
+  // (MAP_TOKEN) — он даёт доступ только на чтение списка объектов для карты
+  // и на сохранение найденных координат, и ничего больше. Основной токен
+  // расширения сюда никогда не попадает.
+  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwPaQ6gJpwFIvNXK3H-qfh6CynyzrP_gKYrgSTolXpd4H7fOF6FHJK-WKPFmlvGZaM6/exec";
+  var MAP_TOKEN = "mp7Kx2vQdZt9Hn4R";
+
+  function setDebug(text) {
+    var el = document.getElementById("debug-msg");
+    if (el) el.textContent = text;
+  }
+  window.addEventListener("error", function (e) {
+    setDebug("Ошибка JS: " + e.message);
+  }, true);
+  setTimeout(function () {
+    if (typeof ymaps === "undefined") {
+      setDebug("Не удалось загрузить Яндекс Карты (скрипт api-maps.yandex.ru не ответил за 6 секунд). Проверь интернет или ключ API.");
+    }
+  }, 6000);
+
+  var ALL_POINTS = [];
+  var currentBucket = "rent";
+  var map, collection;
+  var mapReadyDone = false;
+  var dataLoadedDone = false;
+
+  function pointsForBucket(bucket) {
+    return ALL_POINTS.filter(function (p) { return p.bucket === bucket; });
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+
+  function renderBucket(bucket) {
+    currentBucket = bucket;
+    document.getElementById("btn-rent").className = bucket === "rent" ? "active rent" : "rent";
+    document.getElementById("btn-sale").className = bucket === "sale" ? "active sale" : "sale";
+
+    collection.removeAll();
+    var pts = pointsForBucket(bucket);
+    var withCoords = 0;
+    pts.forEach(function (p) {
+      if (p.lat == null || p.lng == null) return;
+      withCoords++;
+      var balloon = "<div style=\"font-size:13px;line-height:1.5;\">" +
+        (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
+        escapeHtml(p.address) +
+        (p.offerLink ? ("<br><a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
+        "</div>";
+      var placemark = new ymaps.Placemark([p.lat, p.lng], {
+        balloonContent: balloon,
+        hintContent: p.address
+      }, {
+        preset: bucket === "rent" ? "islands#blueHomeIcon" : "islands#redHomeIcon"
+      });
+      collection.add(placemark);
+    });
+
+    document.getElementById("count-label").textContent =
+      pts.length === 0 ? "Нет объектов с адресом" :
+      (withCoords + " из " + pts.length + " показано на карте" +
+      (pts.length > withCoords ? " (у остальных ещё нет координат — появятся через минуту-две)" : ""));
+
+    if (withCoords > 0) {
+      map.setBounds(collection.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
+    }
+  }
+
+  // Адреса без координат — геокодируем прямо в браузере (ymaps.geocode), по чуть-чуть
+  // за раз, чтобы не упереться в дневной лимит запросов Яндекса, и сразу сохраняем
+  // результат обратно в таблицу "База" — при следующем открытии карты эти адреса уже
+  // не нужно будет искать заново.
+  function geocodeMissing() {
+    var missing = ALL_POINTS.filter(function (p) { return p.lat == null || p.lng == null; });
+    if (!missing.length) return;
+
+    var BATCH = 15;
+    var batch = missing.slice(0, BATCH);
+    var statusEl = document.getElementById("geo-status");
+    statusEl.textContent = "Определяю координаты новых адресов (" + batch.length + ")...";
+
+    var results = [];
+    var done = 0;
+
+    batch.forEach(function (p) {
+      ymaps.geocode(p.address, { results: 1 }).then(function (res) {
+        var obj = res.geoObjects.get(0);
+        if (obj) {
+          var coords = obj.geometry.getCoordinates();
+          p.lat = coords[0];
+          p.lng = coords[1];
+          results.push({ propertyId: p.propertyId, lat: coords[0], lng: coords[1] });
+        }
+      }).catch(function () {
+        // не нашли адрес — пропускаем, можно поправить адрес в виджете и попробовать позже
+      }).then(function () {
+        done++;
+        if (done === batch.length) {
+          statusEl.textContent = "";
+          if (results.length) {
+            saveCoords(results);
+            renderBucket(currentBucket);
+          }
+        }
+      });
+    });
+  }
+
+  function saveCoords(results) {
+    fetch(SCRIPT_URL, {
+      method: "POST",
+      mode: "cors",
+      redirect: "follow",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: MAP_TOKEN, action: "save_coords", coords: results })
+    }).catch(function () { /* не критично, попробуем в другой раз */ });
+  }
+
+  function tryStart() {
+    if (!mapReadyDone || !dataLoadedDone) return;
+    try {
+      setDebug("");
+      renderBucket("rent");
+      geocodeMissing();
+    } catch (err) {
+      setDebug("Ошибка при отрисовке карты: " + err.message);
+    }
+  }
+
+  // Загружаем список объектов параллельно с загрузкой самой карты — что бы ни
+  // подгрузилось раньше, старт карты ждёт оба события (tryStart).
+  fetch(SCRIPT_URL + "?view=map_data&token=" + encodeURIComponent(MAP_TOKEN))
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res.status !== "success") throw new Error(res.message || "Ошибка сервера");
+      ALL_POINTS = res.points || [];
+      dataLoadedDone = true;
+      tryStart();
+    })
+    .catch(function (err) {
+      setDebug("Не удалось загрузить список объектов: " + err.message);
+    });
+
+  try {
+    ymaps.ready(function () {
+      try {
+        map = new ymaps.Map("map", {
+          center: [41.6168, 41.6367], // Батуми
+          zoom: 12,
+          controls: ["zoomControl", "geolocationControl"]
+        });
+        collection = new ymaps.GeoObjectCollection();
+        map.geoObjects.add(collection);
+
+        document.getElementById("btn-rent").addEventListener("click", function () { renderBucket("rent"); });
+        document.getElementById("btn-sale").addEventListener("click", function () { renderBucket("sale"); });
+
+        mapReadyDone = true;
+        tryStart();
+      } catch (innerErr) {
+        setDebug("Ошибка при создании карты: " + innerErr.message);
+      }
+    });
+  } catch (outerErr) {
+    setDebug("Ошибка: " + outerErr.message + " (похоже, api-maps.yandex.ru вообще не загрузился)");
+  }
+</script>
+</body>
+</html>
