@@ -22,7 +22,7 @@
   .count { font-size:13px; color:#718096; }
   .status { font-size:12px; color:#a0aec0; margin-left:auto; }
 </style>
-<script src="https://api-maps.yandex.ru/2.1/?apikey=2c4005d2-7aa5-4b22-b760-a353b19a7875&lang=ru_RU"></script>
+<script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
 </head>
 <body>
   <div class="topbar">
@@ -48,6 +48,15 @@
   // расширения сюда никогда не попадает.
   var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwPaQ6gJpwFIvNXK3H-qfh6CynyzrP_gKYrgSTolXpd4H7fOF6FHJK-WKPFmlvGZaM6/exec";
   var MAP_TOKEN = "mp7Kx2vQdZt9Hn4R";
+
+  // Ключ для карты (JavaScript API, бесплатный) и отдельный ключ для поиска
+  // координат по адресу — у Яндекса это два разных продукта с разными
+  // ключами. Встроенный ymaps.geocode() внутри JS-карты требует ПЛАТНОГО
+  // тарифа JavaScript API (проверено — просил 195 000 ₽/год), поэтому вместо
+  // него адреса ищутся напрямую через бесплатный HTTP-геокодер Яндекса
+  // (geocode-maps.yandex.ru) — он работает на отдельном бесплатном тарифе
+  // (1000 запросов в сутки) и не связан с платной подпиской карты.
+  var GEOCODER_KEY = "2c4005d2-7aa5-4b22-b760-a353b19a7875";
 
   function setDebug(text) {
     var el = document.getElementById("debug-msg");
@@ -113,10 +122,30 @@
     }
   }
 
-  // Адреса без координат — геокодируем прямо в браузере (ymaps.geocode), по чуть-чуть
-  // за раз, чтобы не упереться в дневной лимит запросов Яндекса, и сразу сохраняем
-  // результат обратно в таблицу "База" — при следующем открытии карты эти адреса уже
-  // не нужно будет искать заново.
+  // Адреса без координат — геокодируем прямо в браузере, по чуть-чуть за раз,
+  // чтобы не упереться в дневной лимит запросов Яндекса, и сразу сохраняем
+  // результат обратно в таблицу "База" — при следующем открытии карты эти
+  // адреса уже не нужно будет искать заново. Используем отдельный бесплатный
+  // HTTP-геокодер (см. GEOCODER_KEY выше), а не ymaps.geocode().
+  function geocodeAddress(address) {
+    var url = "https://geocode-maps.yandex.ru/1.x/?apikey=" + encodeURIComponent(GEOCODER_KEY) +
+      "&format=json&results=1&geocode=" + encodeURIComponent(address);
+    return fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var members = data && data.response && data.response.GeoObjectCollection &&
+          data.response.GeoObjectCollection.featureMember;
+        if (!members || !members.length) return null;
+        // Яндекс отдаёт координаты как "долгота широта" (через пробел) —
+        // переворачиваем в [широта, долгота], как ждёт ymaps.Placemark.
+        var pos = members[0].GeoObject.Point.pos.split(" ");
+        var lng = parseFloat(pos[0]);
+        var lat = parseFloat(pos[1]);
+        if (isNaN(lat) || isNaN(lng)) return null;
+        return [lat, lng];
+      });
+  }
+
   function geocodeMissing() {
     var missing = ALL_POINTS.filter(function (p) { return p.lat == null || p.lng == null; });
     if (!missing.length) return;
@@ -130,10 +159,8 @@
     var done = 0;
 
     batch.forEach(function (p) {
-      ymaps.geocode(p.address, { results: 1 }).then(function (res) {
-        var obj = res.geoObjects.get(0);
-        if (obj) {
-          var coords = obj.geometry.getCoordinates();
+      geocodeAddress(p.address).then(function (coords) {
+        if (coords) {
           p.lat = coords[0];
           p.lng = coords[1];
           results.push({ propertyId: p.propertyId, lat: coords[0], lng: coords[1] });
