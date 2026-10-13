@@ -28,6 +28,7 @@
   .legend .dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
   .legend .dot.apt { background:#3182ce; }
   .legend .dot.house { background:#e53e3e; }
+  .legend .dot.commercial { background:#a0aec0; }
   .toolbar-row { display:flex; align-items:center; gap:12px; }
 </style>
 <script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
@@ -47,8 +48,9 @@
         <button id="btn-type-all" class="active">Все</button>
         <button id="btn-type-apartment">Квартиры</button>
         <button id="btn-type-house">Дома</button>
+        <button id="btn-type-commercial">Коммерция</button>
       </div>
-      <span class="legend"><span class="dot apt"></span>Квартира<span class="dot house" style="margin-left:8px;"></span>Дом</span>
+      <span class="legend"><span class="dot apt"></span>Квартира<span class="dot house" style="margin-left:8px;"></span>Дом<span class="dot commercial" style="margin-left:8px;"></span>Коммерция</span>
     </div>
   </div>
   <div id="map"></div>
@@ -96,13 +98,15 @@
   var mapReadyDone = false;
   var dataLoadedDone = false;
 
-  // "Тип недвижимости" приходит из таблицы как есть ("Квартира", "Дом" и
-  // т.п.) — определяем по тексту, чтобы не зависеть от регистра/опечаток.
+  // "Тип недвижимости" приходит из таблицы как есть ("Квартира", "Дом",
+  // "Коммерческая недвижимость", "Офис", "Склад" и т.п.) — определяем по
+  // тексту, чтобы не зависеть от регистра/опечаток. Всё, что не квартира и
+  // не дом (офисы, склады, участки, гаражи и т.п.), считаем коммерцией.
   function classifyType(propertyType) {
     var t = String(propertyType || "").toLowerCase();
     if (t.indexOf("дом") !== -1) return "house";
     if (t.indexOf("кварт") !== -1) return "apartment";
-    return "other";
+    return "commercial";
   }
 
   function pointsForBucket(bucket) {
@@ -135,8 +139,9 @@
         escapeHtml(p.address) +
         (p.offerLink ? ("<br><a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
         "</div>";
-      // Цвет метки — по типу недвижимости (синий — квартира, красный — дом),
-      // а не по аренде/продаже (для этого есть переключатель вверху).
+      // Цвет метки — по типу недвижимости (синий — квартира, красный — дом,
+      // серый — коммерция), а не по аренде/продаже (для этого есть
+      // переключатель вверху).
       var typeClass = classifyType(p.propertyType);
       var preset = typeClass === "house" ? "islands#redHomeIcon" :
         typeClass === "apartment" ? "islands#blueHomeIcon" : "islands#grayHomeIcon";
@@ -283,11 +288,13 @@
           document.getElementById("btn-type-all").className = type === "all" ? "active" : "";
           document.getElementById("btn-type-apartment").className = type === "apartment" ? "active" : "";
           document.getElementById("btn-type-house").className = type === "house" ? "active" : "";
+          document.getElementById("btn-type-commercial").className = type === "commercial" ? "active" : "";
           renderBucket(currentBucket);
         }
         document.getElementById("btn-type-all").addEventListener("click", function () { setTypeFilter("all"); });
         document.getElementById("btn-type-apartment").addEventListener("click", function () { setTypeFilter("apartment"); });
         document.getElementById("btn-type-house").addEventListener("click", function () { setTypeFilter("house"); });
+        document.getElementById("btn-type-commercial").addEventListener("click", function () { setTypeFilter("commercial"); });
 
         mapReadyDone = true;
         tryStart();
