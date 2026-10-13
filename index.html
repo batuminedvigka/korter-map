@@ -37,6 +37,9 @@
   .heating-check { display:flex; align-items:center; gap:4px; cursor:pointer; user-select:none; }
   .heating-check input { margin:0; cursor:pointer; }
   .pets-select { border:1px solid #cbd5e0; border-radius:6px; padding:4px 8px; font-size:13px; color:#4a5568; background:#fff; }
+  .price-filter { margin-left:auto; }
+  .price-input { border:1px solid #cbd5e0; border-radius:6px; padding:4px 8px; font-size:13px; color:#4a5568; width:84px; box-sizing:border-box; }
+  .price-input::-webkit-inner-spin-button { opacity:0.5; }
 </style>
 <script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
 </head>
@@ -52,6 +55,12 @@
         <button id="btn-sale" class="sale">Продажа</button>
       </div>
       <span class="count" id="count-label"></span>
+      <div class="filter-group price-filter">
+        <span class="filter-label">Цена:</span>
+        <input type="number" class="price-input" id="price-min" placeholder="от" min="0">
+        <span>—</span>
+        <input type="number" class="price-input" id="price-max" placeholder="до" min="0">
+      </div>
       <span class="status" id="geo-status"></span>
     </div>
     <div class="toolbar-row">
@@ -127,6 +136,8 @@
   var currentTypeFilter = "all"; // "all" | "apartment" | "house" | "commercial"
   var currentHeatingFilter = []; // выбранные виды отопления; пусто = без фильтра
   var currentPetsFilter = "all"; // "all" | "Да" | "Нет" | "Обсуждаемо"
+  var currentPriceMin = null; // число или null — без ограничения снизу
+  var currentPriceMax = null; // число или null — без ограничения сверху
   var map, collection;
   var mapReadyDone = false;
   var dataLoadedDone = false;
@@ -156,6 +167,22 @@
     return String(p.pets || "").trim() === currentPetsFilter;
   }
 
+  // Цена в таблице хранится как текст с пробелами-разделителями ("75 000") —
+  // убираем всё, кроме цифр и точки, и сравниваем как число.
+  function parsePrice(price) {
+    var n = parseFloat(String(price || "").replace(/[^\d.]/g, ""));
+    return isNaN(n) ? null : n;
+  }
+
+  function matchesPrice(p) {
+    if (currentPriceMin == null && currentPriceMax == null) return true;
+    var n = parsePrice(p.price);
+    if (n == null) return false; // без цены — не попадает под заданный диапазон
+    if (currentPriceMin != null && n < currentPriceMin) return false;
+    if (currentPriceMax != null && n > currentPriceMax) return false;
+    return true;
+  }
+
   // Активен/Черновик считаем "активными" (объявление ещё живо на Кортере, просто
   // черновик ещё не опубликован) — в "Архив" попадает только то, что реально
   // ушло в архив. У части старых объектов статус вообще не определён (их не
@@ -174,6 +201,7 @@
       if (currentTypeFilter !== "all" && classifyType(p.propertyType) !== currentTypeFilter) return false;
       if (!matchesHeating(p)) return false;
       if (!matchesPets(p)) return false;
+      if (!matchesPrice(p)) return false;
       return true;
     });
   }
@@ -441,6 +469,15 @@
 
         document.getElementById("pets-filter").addEventListener("change", function (e) {
           currentPetsFilter = e.target.value;
+          renderBucket(currentBucket);
+        });
+
+        document.getElementById("price-min").addEventListener("input", function (e) {
+          currentPriceMin = e.target.value === "" ? null : parseFloat(e.target.value);
+          renderBucket(currentBucket);
+        });
+        document.getElementById("price-max").addEventListener("input", function (e) {
+          currentPriceMax = e.target.value === "" ? null : parseFloat(e.target.value);
           renderBucket(currentBucket);
         });
 
