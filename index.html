@@ -29,7 +29,12 @@
   .legend .dot.apt { background:#3182ce; }
   .legend .dot.house { background:#e53e3e; }
   .legend .dot.commercial { background:#a0aec0; }
-  .toolbar-row { display:flex; align-items:center; gap:12px; }
+  .toolbar-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .filter-group { display:flex; align-items:center; gap:10px; font-size:13px; color:#4a5568; }
+  .filter-group .filter-label { color:#718096; }
+  .heating-check { display:flex; align-items:center; gap:4px; cursor:pointer; user-select:none; }
+  .heating-check input { margin:0; cursor:pointer; }
+  .pets-select { border:1px solid #cbd5e0; border-radius:6px; padding:4px 8px; font-size:13px; color:#4a5568; background:#fff; }
 </style>
 <script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
 </head>
@@ -51,6 +56,25 @@
         <button id="btn-type-commercial">Коммерция</button>
       </div>
       <span class="legend"><span class="dot apt"></span>Квартира<span class="dot house" style="margin-left:8px;"></span>Дом<span class="dot commercial" style="margin-left:8px;"></span>Коммерция</span>
+    </div>
+    <div class="toolbar-row">
+      <div class="filter-group" id="heating-filter">
+        <span class="filter-label">Отопление:</span>
+        <label class="heating-check"><input type="checkbox" value="Центральное">Центральное</label>
+        <label class="heating-check"><input type="checkbox" value="Тёплый пол">Тёплый пол</label>
+        <label class="heating-check"><input type="checkbox" value="Кондиционер">Кондиционер</label>
+        <label class="heating-check"><input type="checkbox" value="Карма">Карма</label>
+        <label class="heating-check"><input type="checkbox" value="Камин">Камин</label>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">Животные:</span>
+        <select class="pets-select" id="pets-filter">
+          <option value="all">Все</option>
+          <option value="Да">Да</option>
+          <option value="Нет">Нет</option>
+          <option value="Обсуждаемо">Обсуждаемо</option>
+        </select>
+      </div>
     </div>
   </div>
   <div id="map"></div>
@@ -93,7 +117,9 @@
 
   var ALL_POINTS = [];
   var currentBucket = "rent";
-  var currentTypeFilter = "all"; // "all" | "apartment" | "house"
+  var currentTypeFilter = "all"; // "all" | "apartment" | "house" | "commercial"
+  var currentHeatingFilter = []; // выбранные виды отопления; пусто = без фильтра
+  var currentPetsFilter = "all"; // "all" | "Да" | "Нет" | "Обсуждаемо"
   var map, collection;
   var mapReadyDone = false;
   var dataLoadedDone = false;
@@ -109,11 +135,27 @@
     return "commercial";
   }
 
+  // "Отопление" в таблице может быть несколько значений через запятую
+  // ("Центральное, Кондиционер") — объект подходит под фильтр, если хотя бы
+  // одно из его значений отмечено галочкой.
+  function matchesHeating(p) {
+    if (!currentHeatingFilter.length) return true;
+    var types = String(p.heating || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    return types.some(function (t) { return currentHeatingFilter.indexOf(t) !== -1; });
+  }
+
+  function matchesPets(p) {
+    if (currentPetsFilter === "all") return true;
+    return String(p.pets || "").trim() === currentPetsFilter;
+  }
+
   function pointsForBucket(bucket) {
     return ALL_POINTS.filter(function (p) {
       if (p.bucket !== bucket) return false;
-      if (currentTypeFilter === "all") return true;
-      return classifyType(p.propertyType) === currentTypeFilter;
+      if (currentTypeFilter !== "all" && classifyType(p.propertyType) !== currentTypeFilter) return false;
+      if (!matchesHeating(p)) return false;
+      if (!matchesPets(p)) return false;
+      return true;
     });
   }
 
@@ -123,6 +165,55 @@
     return d.innerHTML;
   }
 
+  // Склонение слова "объект" под число (1 объект / 2 объекта / 5 объектов).
+  function pluralObjects(n) {
+    var n10 = n % 10, n100 = n % 100;
+    if (n10 === 1 && n100 !== 11) return n + " объект";
+    if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return n + " объекта";
+    return n + " объектов";
+  }
+
+  function itemBalloonLines(p) {
+    var lines = "";
+    if (p.heating) lines += "Отопление: " + escapeHtml(p.heating) + "<br>";
+    if (p.pets) lines += "Животные: " + escapeHtml(p.pets) + "<br>";
+    return lines;
+  }
+
+  // Если у нескольких объектов совпадает адрес, Яндекс находит для них одни
+  // и те же координаты — без группировки метки лежали бы одна на другой, и
+  // кликнуть можно было бы только на верхнюю. Поэтому точки с одинаковыми
+  // (округлёнными) координатами объединяются в одну метку-кружок с цифрой —
+  // сколько объектов по этому адресу, а клик по ней открывает список всех.
+  function groupKey(p) {
+    return p.lat.toFixed(5) + "," + p.lng.toFixed(5);
+  }
+
+  function singleBalloon(p) {
+    return "<div style=\"font-size:13px;line-height:1.5;\">" +
+      (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
+      escapeHtml(p.address) + "<br>" +
+      itemBalloonLines(p) +
+      (p.offerLink ? ("<a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
+      "</div>";
+  }
+
+  function groupBalloon(points) {
+    var itemsHtml = points.map(function (p) {
+      return "<div style=\"margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;\">" +
+        (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
+        itemBalloonLines(p) +
+        (p.offerLink ? ("<a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
+        "</div>";
+    }).join("");
+    return "<div style=\"font-size:13px;line-height:1.5;max-height:260px;overflow-y:auto;min-width:200px;\">" +
+      "<b>" + escapeHtml(points[0].address) + "</b><br>" +
+      pluralObjects(points.length) + " по этому адресу" +
+      "<hr style=\"margin:6px 0;border-color:#e2e8f0;\">" +
+      itemsHtml +
+      "</div>";
+  }
+
   function renderBucket(bucket) {
     currentBucket = bucket;
     document.getElementById("btn-rent").className = bucket === "rent" ? "active rent" : "rent";
@@ -130,36 +221,51 @@
 
     collection.removeAll();
     var pts = pointsForBucket(bucket);
-    var withCoords = 0;
-    pts.forEach(function (p) {
-      if (p.lat == null || p.lng == null) return;
-      withCoords++;
-      var balloon = "<div style=\"font-size:13px;line-height:1.5;\">" +
-        (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
-        escapeHtml(p.address) +
-        (p.offerLink ? ("<br><a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
-        "</div>";
-      // Цвет метки — по типу недвижимости (синий — квартира, красный — дом,
-      // серый — коммерция), а не по аренде/продаже (для этого есть
-      // переключатель вверху).
-      var typeClass = classifyType(p.propertyType);
-      var preset = typeClass === "house" ? "islands#redHomeIcon" :
-        typeClass === "apartment" ? "islands#blueHomeIcon" : "islands#grayHomeIcon";
-      var placemark = new ymaps.Placemark([p.lat, p.lng], {
-        balloonContent: balloon,
-        hintContent: p.address
-      }, {
-        preset: preset
-      });
+    var withCoordsPts = pts.filter(function (p) { return p.lat != null && p.lng != null; });
+
+    var groups = {};
+    var order = [];
+    withCoordsPts.forEach(function (p) {
+      var key = groupKey(p);
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(p);
+    });
+
+    order.forEach(function (key) {
+      var group = groups[key];
+      var first = group[0];
+      var placemark;
+      if (group.length === 1) {
+        // Цвет метки — по типу недвижимости (синий — квартира, красный — дом,
+        // серый — коммерция), а не по аренде/продаже (для этого есть
+        // переключатель вверху).
+        var typeClass = classifyType(first.propertyType);
+        var preset = typeClass === "house" ? "islands#redHomeIcon" :
+          typeClass === "apartment" ? "islands#blueHomeIcon" : "islands#grayHomeIcon";
+        placemark = new ymaps.Placemark([first.lat, first.lng], {
+          balloonContent: singleBalloon(first),
+          hintContent: first.address
+        }, {
+          preset: preset
+        });
+      } else {
+        placemark = new ymaps.Placemark([first.lat, first.lng], {
+          iconContent: String(group.length),
+          balloonContent: groupBalloon(group),
+          hintContent: first.address + " — " + pluralObjects(group.length)
+        }, {
+          preset: "islands#blackStretchyIcon"
+        });
+      }
       collection.add(placemark);
     });
 
     document.getElementById("count-label").textContent =
       pts.length === 0 ? "Нет объектов с адресом" :
-      (withCoords + " из " + pts.length + " показано на карте" +
-      (pts.length > withCoords ? " (у остальных ещё нет координат — появятся через минуту-две)" : ""));
+      (withCoordsPts.length + " из " + pts.length + " показано на карте" +
+      (pts.length > withCoordsPts.length ? " (у остальных ещё нет координат — появятся через минуту-две)" : ""));
 
-    if (withCoords > 0) {
+    if (withCoordsPts.length > 0) {
       map.setBounds(collection.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
     }
   }
@@ -295,6 +401,20 @@
         document.getElementById("btn-type-apartment").addEventListener("click", function () { setTypeFilter("apartment"); });
         document.getElementById("btn-type-house").addEventListener("click", function () { setTypeFilter("house"); });
         document.getElementById("btn-type-commercial").addEventListener("click", function () { setTypeFilter("commercial"); });
+
+        var heatingCheckboxes = document.querySelectorAll("#heating-filter input[type=checkbox]");
+        heatingCheckboxes.forEach(function (cb) {
+          cb.addEventListener("change", function () {
+            currentHeatingFilter = Array.prototype.filter.call(heatingCheckboxes, function (c) { return c.checked; })
+              .map(function (c) { return c.value; });
+            renderBucket(currentBucket);
+          });
+        });
+
+        document.getElementById("pets-filter").addEventListener("change", function (e) {
+          currentPetsFilter = e.target.value;
+          renderBucket(currentBucket);
+        });
 
         mapReadyDone = true;
         tryStart();
