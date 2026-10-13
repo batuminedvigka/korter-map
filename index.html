@@ -22,6 +22,8 @@
   .toggle-group button.active.sale { background:#e53e3e; color:#fff; }
   .toggle-group.type-group button { padding:6px 14px; font-size:13px; }
   .toggle-group.type-group button.active { background:#4a5568; color:#fff; }
+  .toggle-group.status-group button.active.status-active { background:#38a169; color:#fff; }
+  .toggle-group.status-group button.active.status-archive { background:#dd6b20; color:#fff; }
   .count { font-size:13px; color:#718096; }
   .status { font-size:12px; color:#a0aec0; margin-left:auto; }
   .legend { font-size:12px; color:#718096; display:flex; align-items:center; gap:6px; }
@@ -41,6 +43,10 @@
 <body>
   <div class="topbar">
     <div class="toolbar-row">
+      <div class="toggle-group status-group">
+        <button id="btn-status-active" class="active status-active">Активные</button>
+        <button id="btn-status-archive" class="status-archive">Архив</button>
+      </div>
       <div class="toggle-group">
         <button id="btn-rent" class="active rent">Аренда</button>
         <button id="btn-sale" class="sale">Продажа</button>
@@ -117,6 +123,7 @@
 
   var ALL_POINTS = [];
   var currentBucket = "rent";
+  var currentStatusFilter = "active"; // "active" | "archive" — см. колонку korterStatus
   var currentTypeFilter = "all"; // "all" | "apartment" | "house" | "commercial"
   var currentHeatingFilter = []; // выбранные виды отопления; пусто = без фильтра
   var currentPetsFilter = "all"; // "all" | "Да" | "Нет" | "Обсуждаемо"
@@ -149,9 +156,21 @@
     return String(p.pets || "").trim() === currentPetsFilter;
   }
 
+  // Активен/Черновик считаем "активными" (объявление ещё живо на Кортере, просто
+  // черновик ещё не опубликован) — в "Архив" попадает только то, что реально
+  // ушло в архив. У части старых объектов статус вообще не определён (их не
+  // нашли ни в одном из трёх списков на Кортере — скорее всего, объявление
+  // удалено полностью) — такие не показываются ни на "Активных", ни на "Архиве".
+  function matchesStatus(p) {
+    var ks = String(p.korterStatus || "").trim();
+    if (currentStatusFilter === "archive") return ks === "Архив";
+    return ks === "Активен" || ks === "Черновик";
+  }
+
   function pointsForBucket(bucket) {
     return ALL_POINTS.filter(function (p) {
       if (p.bucket !== bucket) return false;
+      if (!matchesStatus(p)) return false;
       if (currentTypeFilter !== "all" && classifyType(p.propertyType) !== currentTypeFilter) return false;
       if (!matchesHeating(p)) return false;
       if (!matchesPets(p)) return false;
@@ -388,6 +407,15 @@
 
         document.getElementById("btn-rent").addEventListener("click", function () { renderBucket("rent"); });
         document.getElementById("btn-sale").addEventListener("click", function () { renderBucket("sale"); });
+
+        function setStatusFilter(status) {
+          currentStatusFilter = status;
+          document.getElementById("btn-status-active").className = status === "active" ? "active status-active" : "status-active";
+          document.getElementById("btn-status-archive").className = status === "archive" ? "active status-archive" : "status-archive";
+          renderBucket(currentBucket);
+        }
+        document.getElementById("btn-status-active").addEventListener("click", function () { setStatusFilter("active"); });
+        document.getElementById("btn-status-archive").addEventListener("click", function () { setStatusFilter("archive"); });
 
         function setTypeFilter(type) {
           currentTypeFilter = type;
