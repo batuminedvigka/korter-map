@@ -6,11 +6,12 @@
 <title>Карта объектов — Korter CRM</title>
 <style>
   html, body { margin:0; padding:0; height:100%; font-family:-apple-system,"Segoe UI",Roboto,sans-serif; }
-  #map { position:absolute; top:56px; left:0; right:0; bottom:0; }
+  #map { position:absolute; top:98px; left:0; right:0; bottom:0; }
   .topbar {
-    position:absolute; top:0; left:0; right:0; height:56px; z-index:10;
-    background:#fff; border-bottom:1px solid #e2e8f0; display:flex; align-items:center;
-    gap:12px; padding:0 16px; box-sizing:border-box; box-shadow:0 1px 3px rgba(0,0,0,0.06);
+    position:absolute; top:0; left:0; right:0; z-index:10;
+    background:#fff; border-bottom:1px solid #e2e8f0; display:flex; flex-direction:column;
+    justify-content:center; gap:6px; padding:8px 16px; box-sizing:border-box;
+    box-shadow:0 1px 3px rgba(0,0,0,0.06);
   }
   .toggle-group { display:flex; border:1px solid #cbd5e0; border-radius:8px; overflow:hidden; }
   .toggle-group button {
@@ -19,22 +20,39 @@
   }
   .toggle-group button.active.rent { background:#3182ce; color:#fff; }
   .toggle-group button.active.sale { background:#e53e3e; color:#fff; }
+  .toggle-group.type-group button { padding:6px 14px; font-size:13px; }
+  .toggle-group.type-group button.active { background:#4a5568; color:#fff; }
   .count { font-size:13px; color:#718096; }
   .status { font-size:12px; color:#a0aec0; margin-left:auto; }
+  .legend { font-size:12px; color:#718096; display:flex; align-items:center; gap:6px; }
+  .legend .dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
+  .legend .dot.apt { background:#3182ce; }
+  .legend .dot.house { background:#e53e3e; }
+  .toolbar-row { display:flex; align-items:center; gap:12px; }
 </style>
 <script src="https://api-maps.yandex.ru/2.1/?apikey=4613183a-68b0-4f36-98fb-b348cf6d9353&lang=ru_RU"></script>
 </head>
 <body>
   <div class="topbar">
-    <div class="toggle-group">
-      <button id="btn-rent" class="active rent">Аренда</button>
-      <button id="btn-sale" class="sale">Продажа</button>
+    <div class="toolbar-row">
+      <div class="toggle-group">
+        <button id="btn-rent" class="active rent">Аренда</button>
+        <button id="btn-sale" class="sale">Продажа</button>
+      </div>
+      <span class="count" id="count-label"></span>
+      <span class="status" id="geo-status"></span>
     </div>
-    <span class="count" id="count-label"></span>
-    <span class="status" id="geo-status"></span>
+    <div class="toolbar-row">
+      <div class="toggle-group type-group">
+        <button id="btn-type-all" class="active">Все</button>
+        <button id="btn-type-apartment">Квартиры</button>
+        <button id="btn-type-house">Дома</button>
+      </div>
+      <span class="legend"><span class="dot apt"></span>Квартира<span class="dot house" style="margin-left:8px;"></span>Дом</span>
+    </div>
   </div>
   <div id="map"></div>
-  <div id="debug-msg" style="position:absolute; top:70px; left:16px; right:16px; font-size:14px; color:#2d3748; z-index:5;">Загрузка карты…</div>
+  <div id="debug-msg" style="position:absolute; top:106px; left:16px; right:16px; font-size:14px; color:#2d3748; z-index:5;">Загрузка карты…</div>
 <script>
   // Этот файл отдаётся обычным статическим хостингом (GitHub Pages), а НЕ
   // внутри Google Apps Script — именно поэтому скрипт Яндекс Карт здесь
@@ -73,12 +91,26 @@
 
   var ALL_POINTS = [];
   var currentBucket = "rent";
+  var currentTypeFilter = "all"; // "all" | "apartment" | "house"
   var map, collection;
   var mapReadyDone = false;
   var dataLoadedDone = false;
 
+  // "Тип недвижимости" приходит из таблицы как есть ("Квартира", "Дом" и
+  // т.п.) — определяем по тексту, чтобы не зависеть от регистра/опечаток.
+  function classifyType(propertyType) {
+    var t = String(propertyType || "").toLowerCase();
+    if (t.indexOf("дом") !== -1) return "house";
+    if (t.indexOf("кварт") !== -1) return "apartment";
+    return "other";
+  }
+
   function pointsForBucket(bucket) {
-    return ALL_POINTS.filter(function (p) { return p.bucket === bucket; });
+    return ALL_POINTS.filter(function (p) {
+      if (p.bucket !== bucket) return false;
+      if (currentTypeFilter === "all") return true;
+      return classifyType(p.propertyType) === currentTypeFilter;
+    });
   }
 
   function escapeHtml(s) {
@@ -103,11 +135,16 @@
         escapeHtml(p.address) +
         (p.offerLink ? ("<br><a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
         "</div>";
+      // Цвет метки — по типу недвижимости (синий — квартира, красный — дом),
+      // а не по аренде/продаже (для этого есть переключатель вверху).
+      var typeClass = classifyType(p.propertyType);
+      var preset = typeClass === "house" ? "islands#redHomeIcon" :
+        typeClass === "apartment" ? "islands#blueHomeIcon" : "islands#grayHomeIcon";
       var placemark = new ymaps.Placemark([p.lat, p.lng], {
         balloonContent: balloon,
         hintContent: p.address
       }, {
-        preset: bucket === "rent" ? "islands#blueHomeIcon" : "islands#redHomeIcon"
+        preset: preset
       });
       collection.add(placemark);
     });
@@ -240,6 +277,17 @@
 
         document.getElementById("btn-rent").addEventListener("click", function () { renderBucket("rent"); });
         document.getElementById("btn-sale").addEventListener("click", function () { renderBucket("sale"); });
+
+        function setTypeFilter(type) {
+          currentTypeFilter = type;
+          document.getElementById("btn-type-all").className = type === "all" ? "active" : "";
+          document.getElementById("btn-type-apartment").className = type === "apartment" ? "active" : "";
+          document.getElementById("btn-type-house").className = type === "house" ? "active" : "";
+          renderBucket(currentBucket);
+        }
+        document.getElementById("btn-type-all").addEventListener("click", function () { setTypeFilter("all"); });
+        document.getElementById("btn-type-apartment").addEventListener("click", function () { setTypeFilter("apartment"); });
+        document.getElementById("btn-type-house").addEventListener("click", function () { setTypeFilter("house"); });
 
         mapReadyDone = true;
         tryStart();
