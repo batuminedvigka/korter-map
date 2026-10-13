@@ -135,8 +135,12 @@
     // первую очередь рядом с Батуми (ll + spn, без rspn=1 — как подсказку,
     // а не строгое ограничение, чтобы не потерять объекты за городом).
     var query = /батуми/i.test(address) ? address : ("Батуми, " + address);
+    // rspn=1 превращает ll+spn из "подсказки" в СТРОГУЮ рамку поиска — для
+    // улиц с общим для всей Грузии названием (например, в честь известных
+    // людей) Яндекс иначе иногда выбирает более "популярную" одноимённую
+    // улицу в другом городе вместо батумской.
     var url = "https://geocode-maps.yandex.ru/1.x/?apikey=" + encodeURIComponent(GEOCODER_KEY) +
-      "&format=json&results=1&ll=41.6367,41.6168&spn=0.9,0.9" +
+      "&format=json&results=1&ll=41.6367,41.6168&spn=0.35,0.35&rspn=1" +
       "&geocode=" + encodeURIComponent(query);
     return fetch(url)
       .then(function (r) { return r.json(); })
