@@ -24,6 +24,7 @@
   .toggle-group.type-group button.active { background:#4a5568; color:#fff; }
   .toggle-group.status-group button.active.status-active { background:#38a169; color:#fff; }
   .toggle-group.status-group button.active.status-archive { background:#dd6b20; color:#fff; }
+  .toggle-group.status-group button.active.status-all { background:#4a5568; color:#fff; }
   .count { font-size:13px; color:#718096; }
   .status { font-size:12px; color:#a0aec0; margin-left:auto; }
   .legend { font-size:12px; color:#718096; display:flex; align-items:center; gap:6px; }
@@ -46,7 +47,8 @@
   <div class="topbar">
     <div class="toolbar-row">
       <div class="toggle-group status-group">
-        <button id="btn-status-active" class="active status-active">Активные</button>
+        <button id="btn-status-all" class="active status-all">Все</button>
+        <button id="btn-status-active" class="status-active">Активные</button>
         <button id="btn-status-archive" class="status-archive">Архив</button>
       </div>
       <div class="toggle-group">
@@ -131,7 +133,7 @@
 
   var ALL_POINTS = [];
   var currentBucket = "rent";
-  var currentStatusFilter = "active"; // "active" | "archive" — см. колонку korterStatus
+  var currentStatusFilter = "all"; // "all" | "active" | "archive" — см. колонку korterStatus
   var currentTypeFilter = "all"; // "all" | "apartment" | "house" | "commercial"
   var currentHeatingFilter = []; // выбранные виды отопления; пусто = без фильтра
   var currentPetsFilter = "all"; // "all" | "Да" | "Нет" | "Обсуждаемо"
@@ -189,6 +191,7 @@
   // удалено полностью) — такие не показываются ни на "Активных", ни на "Архиве".
   function matchesStatus(p) {
     var ks = String(p.korterStatus || "").trim();
+    if (currentStatusFilter === "all") return ks === "Активен" || ks === "Черновик" || ks === "Архив";
     if (currentStatusFilter === "archive") return ks === "Архив";
     return ks === "Активен" || ks === "Черновик";
   }
@@ -437,10 +440,12 @@
 
         function setStatusFilter(status) {
           currentStatusFilter = status;
+          document.getElementById("btn-status-all").className = status === "all" ? "active status-all" : "status-all";
           document.getElementById("btn-status-active").className = status === "active" ? "active status-active" : "status-active";
           document.getElementById("btn-status-archive").className = status === "archive" ? "active status-archive" : "status-archive";
           renderBucket(currentBucket);
         }
+        document.getElementById("btn-status-all").addEventListener("click", function () { setStatusFilter("all"); });
         document.getElementById("btn-status-active").addEventListener("click", function () { setStatusFilter("active"); });
         document.getElementById("btn-status-archive").addEventListener("click", function () { setStatusFilter("archive"); });
 
