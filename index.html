@@ -222,6 +222,15 @@
     return n + " объектов";
   }
 
+  // Ссылка из балуна ведёт в редактор объявления (/property/draft/edit/<id>),
+  // а не на публичную страницу (/offer/<id>) — так Олег сразу попадает в форму
+  // редактирования, а не на карточку объявления (которая к тому же отдаёт 404
+  // для архивных/черновых объектов). Строится из propertyId на лету, а не из
+  // колонки offerLink в таблице (та хранит старую публичную ссылку).
+  function editLink(p) {
+    return p.propertyId ? ("https://korter.ge/ru/property/draft/edit/" + p.propertyId) : "";
+  }
+
   function itemBalloonLines(p) {
     var lines = "";
     if (p.heating) lines += "Отопление: " + escapeHtml(p.heating) + "<br>";
@@ -243,7 +252,7 @@
       (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
       escapeHtml(p.address) + "<br>" +
       itemBalloonLines(p) +
-      (p.offerLink ? ("<a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
+      (editLink(p) ? ("<a href=\"" + editLink(p) + "\" target=\"_blank\">Открыть объявление</a>") : "") +
       "</div>";
   }
 
@@ -252,7 +261,7 @@
       return "<div style=\"margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;\">" +
         (p.price ? ("<b>" + escapeHtml(p.price) + "</b><br>") : "") +
         itemBalloonLines(p) +
-        (p.offerLink ? ("<a href=\"" + p.offerLink + "\" target=\"_blank\">Открыть объявление</a>") : "") +
+        (editLink(p) ? ("<a href=\"" + editLink(p) + "\" target=\"_blank\">Открыть объявление</a>") : "") +
         "</div>";
     }).join("");
     return "<div style=\"font-size:13px;line-height:1.5;max-height:260px;overflow-y:auto;min-width:200px;\">" +
