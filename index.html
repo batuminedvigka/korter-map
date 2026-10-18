@@ -91,6 +91,10 @@
         <span>—</span>
         <input type="number" class="price-input" id="price-max" placeholder="до" min="0">
       </div>
+      <div class="filter-group" id="id-search-group">
+        <span class="filter-label">Поиск по ID:</span>
+        <input type="text" class="price-input" id="id-search" placeholder="напр. 371768" style="width:110px;">
+      </div>
     </div>
   </div>
   <div id="map"></div>
@@ -139,6 +143,7 @@
   var currentPetsFilter = "all"; // "all" | "Да" | "Нет" | "Обсуждаемо"
   var currentPriceMin = null; // число или null — без ограничения снизу
   var currentPriceMax = null; // число или null — без ограничения сверху
+  var currentIdSearch = ""; // непустая строка — ищем по ID объекта, игнорируя остальные фильтры
   var map, collection;
   var mapReadyDone = false;
   var dataLoadedDone = false;
@@ -228,7 +233,7 @@
   // для архивных/черновых объектов). Строится из propertyId на лету, а не из
   // колонки offerLink в таблице (та хранит старую публичную ссылку).
   function editLink(p) {
-    return p.propertyId ? ("https://korter.ge/ru/property/draft/edit/" + p.propertyId) : "";
+    return p.propertyId ? ("https://korter.ge/ru/property/published/edit/" + p.propertyId) : "";
   }
 
   function itemBalloonLines(p) {
@@ -278,7 +283,13 @@
     document.getElementById("btn-sale").className = bucket === "sale" ? "active sale" : "sale";
 
     collection.removeAll();
-    var pts = pointsForBucket(bucket);
+    // Поиск по ID ищет среди ВСЕХ объектов (не только текущей вкладки
+    // Аренда/Продажа и текущего статуса Активные/Архив) — так проще найти
+    // конкретный объект, не зная заранее, в какой он вкладке.
+    var searching = !!currentIdSearch;
+    var pts = searching
+      ? ALL_POINTS.filter(function (p) { return String(p.propertyId || "").indexOf(currentIdSearch) !== -1; })
+      : pointsForBucket(bucket);
     var withCoordsPts = pts.filter(function (p) { return p.lat != null && p.lng != null; });
 
     var groups = {};
@@ -289,6 +300,7 @@
       groups[key].push(p);
     });
 
+    var placemarksByKey = {};
     order.forEach(function (key) {
       var group = groups[key];
       var first = group[0];
@@ -315,16 +327,23 @@
           preset: "islands#blackStretchyIcon"
         });
       }
+      placemarksByKey[key] = placemark;
       collection.add(placemark);
     });
 
     document.getElementById("count-label").textContent =
+      searching ? (pts.length === 0 ? "Объект с таким ID не найден" : pluralObjects(pts.length) + " найдено") :
       pts.length === 0 ? "Нет объектов с адресом" :
       (withCoordsPts.length + " из " + pts.length + " показано на карте" +
       (pts.length > withCoordsPts.length ? " (у остальных ещё нет координат — появятся через минуту-две)" : ""));
 
     if (withCoordsPts.length > 0) {
       map.setBounds(collection.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
+      if (searching && order.length === 1) {
+        var only = placemarksByKey[order[0]];
+        map.setCenter([withCoordsPts[0].lat, withCoordsPts[0].lng], 17);
+        setTimeout(function () { only.balloon.open(); }, 300);
+      }
     }
   }
 
@@ -491,6 +510,11 @@
         });
         document.getElementById("price-max").addEventListener("input", function (e) {
           currentPriceMax = e.target.value === "" ? null : parseFloat(e.target.value);
+          renderBucket(currentBucket);
+        });
+
+        document.getElementById("id-search").addEventListener("input", function (e) {
+          currentIdSearch = e.target.value.trim();
           renderBucket(currentBucket);
         });
 
