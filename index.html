@@ -335,10 +335,10 @@
   // удалено полностью) — такие не показываются ни на "Активных", ни на "Архиве".
   function matchesStatus(p) {
     var ks = String(p.korterStatus || "").trim();
-    if (currentStatusFilter === "all") return ks === "Активен" || ks === "Черновик" || ks === "Архив";
+    if (currentStatusFilter === "all") return true;
     if (currentStatusFilter === "archive") return ks === "Архив";
-    return ks === "Активен" || ks === "Черновик";
-  }
+    return ks !== "Архив";
+}
 
   function pointsForBucket(bucket) {
     return ALL_POINTS.filter(function (p) {
